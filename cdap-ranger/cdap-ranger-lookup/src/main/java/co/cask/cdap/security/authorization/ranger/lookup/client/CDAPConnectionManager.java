@@ -28,7 +28,7 @@ public class CDAPConnectionManager {
 
   private static final String INSTANCE_URL = "cdap.instance.url";
   private static final String USERNAME = "cdap.username";
-  private static final String PASSWORD = "cdap.password";
+  private static final String PASSWORD = "cdap.password"; //NOSONAR
 
   /**
    * Returns a CDAP Client containing namespace, stream, dataset etc clients
