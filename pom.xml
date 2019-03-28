@@ -71,17 +71,6 @@
     <surefire.redirectTestOutputToFile>true</surefire.redirectTestOutputToFile>
   </properties>
 
-  <repositories>
-    <repository>
-      <id>sonatype</id>
-      <url>https://oss.sonatype.org/content/groups/public</url>
-    </repository>
-    <repository>
-      <id>sonatype-snapshots</id>
-      <url>https://oss.sonatype.org/content/repositories/snapshots</url>
-    </repository>
-  </repositories>
-
   <distributionManagement>
            <repository>
                <id>central</id>
