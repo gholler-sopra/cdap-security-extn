@@ -90,13 +90,13 @@
         <version>${cdap.version}</version>
         <scope>provided</scope>
       </dependency>
-      <dependency>
+      <!--<dependency>
         <groupId>co.cask.cdap</groupId>
         <artifactId>cdap-security-spi</artifactId>
         <version>${cdap.version}</version>
         <type>test-jar</type>
         <scope>test</scope>
-      </dependency>
+      </dependency>-->
       <dependency>
         <groupId>org.slf4j</groupId>
         <artifactId>slf4j-api</artifactId>

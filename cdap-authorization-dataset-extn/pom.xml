@@ -45,7 +45,7 @@
       <artifactId>cdap-api-common</artifactId>
       <version>${cdap.version}</version>
     </dependency>
-    <dependency>
+    <!--<dependency>
       <groupId>co.cask.cdap</groupId>
       <artifactId>cdap-security-spi</artifactId>
       <type>test-jar</type>
@@ -82,7 +82,7 @@
       <version>${cdap.version}</version>
       <type>test-jar</type>
       <scope>test</scope>
-    </dependency>
+    </dependency>-->
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
