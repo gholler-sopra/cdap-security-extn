@@ -22,7 +22,7 @@
   <parent>
     <groupId>co.cask.cdap</groupId>
     <artifactId>cdap-security-extensions</artifactId>
-    <version>0.6.0-SNAPSHOT_5.1.210</version>
+    <version>0.6.0-SNAPSHOT_5.1.211</version>
   </parent>
 
   <artifactId>cdap-authorization-dataset-extn</artifactId>
