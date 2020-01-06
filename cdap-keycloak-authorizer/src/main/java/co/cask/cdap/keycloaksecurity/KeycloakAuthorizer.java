@@ -26,6 +26,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
     private static AuthzClient authzClient;
     private static Properties properties;
     private String instanceName;
+    private Map<String, Integer> entityMap;
 
     public KeycloakAuthorizer() {
     }
@@ -37,6 +38,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
         instanceName = properties.containsKey("instance.name") ?
                 properties.getProperty("instance.name") : "cdap";
         authzClient = AuthzClient.create(is);
+        initializeEntityMap();
     }
 
 
@@ -204,17 +206,6 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
 
     public boolean isEntityAccessible(EntityId entityId, List<String> scopes, String accessToken) {
         String entityType = entityId.getEntityType().name();
-        Map<String, Integer> entityMap = new HashMap<String, Integer>();
-        entityMap.put("INSTANCE", 1);
-        entityMap.put("NAMESPACE", 2);
-        entityMap.put("ARTIFACT", 3);
-        entityMap.put("APPLICATION", 4);
-        entityMap.put("DATASET", 5);
-        entityMap.put("DATASET_MODULE", 6);
-        entityMap.put("DATASET_TYPE", 7);
-        entityMap.put("PROGRAM", 8);
-        entityMap.put("SECUREKEY", 9);
-        entityMap.put("KERBEROSPRINCIPAL", 10);
         String resourceUrl;
         switch (entityMap.get(entityType)) {
             case 1:
@@ -286,5 +277,20 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
 
         InputStream inputStream = new ByteArrayInputStream(JsonElem.getBytes());
         return inputStream;
+    }
+
+    private void initializeEntityMap(){
+        if(entityMap!=null) { return; }
+        Map<String, Integer> entityMap = new HashMap();
+        entityMap.put("INSTANCE", 1);
+        entityMap.put("NAMESPACE", 2);
+        entityMap.put("ARTIFACT", 3);
+        entityMap.put("APPLICATION", 4);
+        entityMap.put("DATASET", 5);
+        entityMap.put("DATASET_MODULE", 6);
+        entityMap.put("DATASET_TYPE", 7);
+        entityMap.put("PROGRAM", 8);
+        entityMap.put("SECUREKEY", 9);
+        entityMap.put("KERBEROSPRINCIPAL", 10);
     }
 }
