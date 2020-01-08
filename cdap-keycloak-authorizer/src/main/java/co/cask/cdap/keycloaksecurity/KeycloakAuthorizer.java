@@ -26,7 +26,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
     private static AuthzClient authzClient;
     private static Properties properties;
     private String instanceName;
-    private Map<String, Integer> entityMap;
+    Map<String, Integer> entityMap;
 
     public KeycloakAuthorizer() {
     }
@@ -38,7 +38,17 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
         instanceName = properties.containsKey("instance.name") ?
                 properties.getProperty("instance.name") : "cdap";
         authzClient = AuthzClient.create(is);
-        initializeEntityMap();
+        entityMap = new HashMap<String, Integer>();
+        entityMap.put("INSTANCE", 1);
+        entityMap.put("NAMESPACE", 2);
+        entityMap.put("ARTIFACT", 3);
+        entityMap.put("APPLICATION", 4);
+        entityMap.put("DATASET", 5);
+        entityMap.put("DATASET_MODULE", 6);
+        entityMap.put("DATASET_TYPE", 7);
+        entityMap.put("PROGRAM", 8);
+        entityMap.put("SECUREKEY", 9);
+        entityMap.put("KERBEROSPRINCIPAL", 10);
     }
 
 
@@ -64,31 +74,21 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
         for (Action action : scopes) {
             scopeList.add(action.toString());
         }
-        boolean isAllowed = isEntityAccessible(entityId, scopeList, accessToken);
-//        boolean isAllowed = requestTokenAuthorization(entityId.getEntityName(),scopeList,accessToken);
+//        boolean isAllowed = isEntityAccessible(entityId, scopeList, accessToken);
+        String resourceUrl = getResourceURL(entityId);
+        boolean isAllowed = requestTokenAuthorization(resourceUrl, scopeList, accessToken);
         return isAllowed;
     }
 
 
     public Set<? extends EntityId> isVisible(Set<? extends EntityId> entityIds, Principal principal) throws Exception {
-        Set<EntityId> visibleEntities = new HashSet(entityIds.size());
         ArrayList<String> scopes = new ArrayList<String>(Arrays.asList("READ", "WRITE", "EXECUTE", "ADMIN"));
-        Map<String, List<String>> resourceMap = new HashMap();
-        Map<String, EntityId> entityMap = new HashMap();
+        Map<EntityId, List<String>> resourceMap = new HashMap();
         for (EntityId entityId : entityIds) {
-            resourceMap.put(entityId.getEntityName(), scopes);
-            entityMap.put(entityId.getEntityName(), entityId);
+            resourceMap.put(entityId, scopes);
         }
-        Collection<Permission> grantedPermission = requestTokenAuthorization(resourceMap, principal.getAccessToken());
-        if (grantedPermission.isEmpty())
-            return Collections.EMPTY_SET;
-        Iterator<Permission> permissionIterator = grantedPermission.iterator();
-        while (permissionIterator.hasNext()) {
-            String resourceName = permissionIterator.next().getResourceName();
-            if (entityMap.containsKey(resourceName)) {
-                visibleEntities.add(entityMap.get(resourceName));
-            }
-        }
+        Set<EntityId> visibleEntities = getVisibleEntities(resourceMap, principal.getAccessToken());
+
         return visibleEntities;
     }
 
@@ -168,7 +168,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
     }
 
 
-    private Collection requestTokenAuthorization(Map<String, List<String>> resourceMap, String keycloakToken) {
+    private Set getVisibleEntities(Map<EntityId, List<String>> resourceMap, String keycloakToken) {
 
         try {
             if (keycloakToken == null) {
@@ -176,35 +176,51 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
             }
 
             if (resourceMap.isEmpty())
-                return Collections.EMPTY_LIST;
+                return Collections.EMPTY_SET;
 
+            String resourceUrl;
+            Set<EntityId> visibleEntities = new HashSet();
             AuthorizationRequest authzRequest = new AuthorizationRequest();
             AuthorizationResponse authzResponse;
             ProtectedResource resourceClient = authzClient.protection().resource();
 
-            for (Map.Entry<String, List<String>> resource : resourceMap.entrySet()) {
-                ResourceRepresentation existingResource = resourceClient.findByName(resource.getKey());
-                if (existingResource != null)
-                    authzRequest.addPermission(existingResource.getId(), resource.getValue());
-            }
+            Map<String, EntityId> resourceEntityMap = new HashMap();
 
-            authzResponse = authzClient.authorization(keycloakToken).authorize(authzRequest);
-            TokenIntrospectionResponse requestingPartyToken = authzClient.protection().introspectRequestingPartyToken(authzResponse.getToken());
-            if (requestingPartyToken != null) {
-                Collection<Permission> grantedPermissions = requestingPartyToken.getPermissions();
-                return grantedPermissions;
+            for (Map.Entry<EntityId, List<String>> resource : resourceMap.entrySet()) {
+                resourceUrl = getResourceURL(resource.getKey());
+                List<ResourceRepresentation> existingResources = resourceClient.findByMatchingUri(resourceUrl);
+                if (existingResources != null && !existingResources.isEmpty()) {
+                    ResourceRepresentation existingResource = existingResources.get(0);
+                    resourceEntityMap.put(existingResource.getId(), resource.getKey());
+                    authzRequest.addPermission(existingResource.getId(), resource.getValue());
+                }
+            }
+            if (authzRequest.getPermissions().getPermissions() != null) {
+                authzResponse = authzClient.authorization(keycloakToken).authorize(authzRequest);
+                TokenIntrospectionResponse requestingPartyToken = authzClient.protection().introspectRequestingPartyToken(authzResponse.getToken());
+                if (requestingPartyToken != null) {
+                    Collection<Permission> grantedPermissions = requestingPartyToken.getPermissions();
+                    Iterator<Permission> permissionIterator = grantedPermissions.iterator();
+                    while (permissionIterator.hasNext()) {
+                        String resourceId = permissionIterator.next().getResourceId();
+                        if (resourceEntityMap.containsKey(resourceId))
+                            visibleEntities.add(resourceEntityMap.get(resourceId));
+
+                    }
+                    return visibleEntities;
+                }
             }
         } catch (AuthorizationDeniedException ignore) {
-            throw new RuntimeException("Unexpected error during authorization request.", ignore);
+            throw new RuntimeException("Authorization is denied.", ignore);
 
         } catch (Exception e) {
             throw new RuntimeException("Unexpected error during authorization request.", e);
         }
-        return Collections.EMPTY_LIST;
+        return Collections.EMPTY_SET;
     }
 
 
-    public boolean isEntityAccessible(EntityId entityId, List<String> scopes, String accessToken) {
+    public String getResourceURL(EntityId entityId) {
         String entityType = entityId.getEntityType().name();
         String resourceUrl;
         switch (entityMap.get(entityType)) {
@@ -212,7 +228,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
                 resourceUrl = "instance/";
                 break;
             case 2:
-                resourceUrl = "instance/" + instanceName + "/namespace/";
+                resourceUrl = "instance/" + instanceName + "/namespace/" + entityId.getEntityName();
                 break;
             case 3:
                 ArtifactId artifactId = (ArtifactId) entityId;
@@ -250,10 +266,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
                 throw new IllegalArgumentException(String.format("The entity %s is of unknown type %s", entityId, entityType));
         }
 
-        if (!resourceUrl.equals("") && !scopes.equals("")) {
-            return requestTokenAuthorization(resourceUrl, scopes, accessToken);
-        }
-        return false;
+        return resourceUrl;
     }
 
     private InputStream createConfigration(AuthorizationContext context) {
@@ -277,20 +290,5 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
 
         InputStream inputStream = new ByteArrayInputStream(JsonElem.getBytes());
         return inputStream;
-    }
-
-    private void initializeEntityMap(){
-        if(entityMap!=null) { return; }
-        Map<String, Integer> entityMap = new HashMap();
-        entityMap.put("INSTANCE", 1);
-        entityMap.put("NAMESPACE", 2);
-        entityMap.put("ARTIFACT", 3);
-        entityMap.put("APPLICATION", 4);
-        entityMap.put("DATASET", 5);
-        entityMap.put("DATASET_MODULE", 6);
-        entityMap.put("DATASET_TYPE", 7);
-        entityMap.put("PROGRAM", 8);
-        entityMap.put("SECUREKEY", 9);
-        entityMap.put("KERBEROSPRINCIPAL", 10);
     }
 }
