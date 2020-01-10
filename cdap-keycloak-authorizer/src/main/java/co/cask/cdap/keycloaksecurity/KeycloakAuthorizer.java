@@ -1,6 +1,7 @@
 package co.cask.cdap.keycloaksecurity;
 
 import co.cask.cdap.proto.id.*;
+import co.cask.cdap.proto.element.EntityType;
 import co.cask.cdap.proto.security.*;
 import co.cask.cdap.security.spi.authorization.AbstractAuthorizer;
 import co.cask.cdap.security.spi.authorization.AuthorizationContext;
@@ -19,6 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
+import java.nio.file.Files;
 import java.util.*;
 
 public class KeycloakAuthorizer extends AbstractAuthorizer {
@@ -26,7 +28,6 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
     private static AuthzClient authzClient;
     private static Properties properties;
     private String instanceName;
-    Map<String, Integer> entityMap;
 
     public KeycloakAuthorizer() {
     }
@@ -34,21 +35,10 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
     public void initialize(AuthorizationContext context) throws Exception {
         System.out.println("initializing ...");
         properties = context.getExtensionProperties();
-        InputStream is = createConfigration(context);
+        InputStream is = createConfiguration(context);
         instanceName = properties.containsKey("instance.name") ?
                 properties.getProperty("instance.name") : "cdap";
         authzClient = AuthzClient.create(is);
-        entityMap = new HashMap<String, Integer>();
-        entityMap.put("INSTANCE", 1);
-        entityMap.put("NAMESPACE", 2);
-        entityMap.put("ARTIFACT", 3);
-        entityMap.put("APPLICATION", 4);
-        entityMap.put("DATASET", 5);
-        entityMap.put("DATASET_MODULE", 6);
-        entityMap.put("DATASET_TYPE", 7);
-        entityMap.put("PROGRAM", 8);
-        entityMap.put("SECUREKEY", 9);
-        entityMap.put("KERBEROSPRINCIPAL", 10);
     }
 
 
@@ -74,9 +64,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
         for (Action action : scopes) {
             scopeList.add(action.toString());
         }
-//        boolean isAllowed = isEntityAccessible(entityId, scopeList, accessToken);
-        String resourceUrl = getResourceURL(entityId);
-        boolean isAllowed = requestTokenAuthorization(resourceUrl, scopeList, accessToken);
+        boolean isAllowed = requestTokenAuthorization(entityId, scopeList, accessToken, true);
         return isAllowed;
     }
 
@@ -87,77 +75,65 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
         for (EntityId entityId : entityIds) {
             resourceMap.put(entityId, scopes);
         }
-        Set<EntityId> visibleEntities = getVisibleEntities(resourceMap, principal.getAccessToken());
+        Set<EntityId> visibleEntities = getVisibleEntities(resourceMap, principal.getAccessToken(), false);
 
         return visibleEntities;
     }
 
     public void grant(Authorizable authorizable, Principal principal, Set<Action> set) {
-        throw new UnsupportedOperationException("Please use Ranger Admin UI to grant privileges.");
+        throw new UnsupportedOperationException("Please use Keycloak Admin UI.");
     }
 
     public void revoke(Authorizable authorizable, Principal principal, Set<Action> set) {
-        throw new UnsupportedOperationException("Please use Ranger Admin UI to revoke privileges.");
+        throw new UnsupportedOperationException("Please use Keycloak Admin UI.");
     }
 
     public void revoke(Authorizable authorizable) {
-        throw new UnsupportedOperationException("Please use Ranger Admin UI to revoke privileges.");
+        throw new UnsupportedOperationException("Please use Keycloak Admin UI.");
     }
 
     public void createRole(Role role) {
-        throw new UnsupportedOperationException("Roles are not supported in Ranger plugin.");
+        throw new UnsupportedOperationException("Please use Keycloak Admin UI.");
     }
 
     public void dropRole(Role role) {
-        throw new UnsupportedOperationException("Roles are not supported in Ranger plugin.");
+        throw new UnsupportedOperationException("Please use Keycloak Admin UI.");
     }
 
     public void addRoleToPrincipal(Role role, Principal principal) {
-        throw new UnsupportedOperationException("Roles are not supported in Ranger plugin.");
+        throw new UnsupportedOperationException("Please use Keycloak Admin UI.");
 
     }
 
     public void removeRoleFromPrincipal(Role role, Principal principal) {
-        throw new UnsupportedOperationException("Roles are not supported in Ranger plugin.");
+        throw new UnsupportedOperationException("Please use Keycloak Admin UI.");
 
     }
 
     public Set<Role> listRoles(Principal principal) {
-        throw new UnsupportedOperationException("Roles are not supported in Ranger plugin.");
+        throw new UnsupportedOperationException("Please use Keycloak Admin UI.");
     }
 
     public Set<Role> listAllRoles() {
-        throw new UnsupportedOperationException("Roles are not supported in Ranger plugin.");
+        throw new UnsupportedOperationException("Please use Keycloak Admin UI.");
     }
 
     public Set<Privilege> listPrivileges(Principal principal) {
-        throw new UnsupportedOperationException("Please use Ranger Admin UI to list privileges.");
+        throw new UnsupportedOperationException("Please use Keycloak Admin UI.");
     }
 
 
-    private boolean requestTokenAuthorization(String resource, List<String> scopes, String keycloakToken) {
+    private boolean requestTokenAuthorization(EntityId entityId, List<String> scopes, String keycloakToken, boolean isAllScopesMandatory) {
 
         try {
             if (keycloakToken == null) {
                 return false;
             }
-
-            AuthorizationRequest authzRequest = new AuthorizationRequest();
-            AuthorizationResponse authzResponse;
-            ProtectedResource resourceClient = authzClient.protection().resource();
-            ResourceRepresentation existingResource = resourceClient.findByMatchingUri(resource).get(0);
-            authzRequest.addPermission(existingResource.getId(), scopes);
-            authzResponse = authzClient.authorization(keycloakToken).authorize(authzRequest);
-            if (authzResponse != null) {
-                TokenIntrospectionResponse requestingPartyToken = authzClient.protection().introspectRequestingPartyToken(authzResponse.getToken());
-                if (requestingPartyToken != null) {
-                    Collection<Permission> grantedPermissions = requestingPartyToken.getPermissions();
-                    Permission resourcePermission = grantedPermissions.iterator().next();
-                    if (resourcePermission.getResourceId().equals(existingResource.getId()) && resourcePermission.getScopes().containsAll(scopes)) {
-                        return true;
-                    }
-                }
-            }
+            Map<EntityId, List<String>> resourceMap = new HashMap();
+            resourceMap.put(entityId, scopes);
+            Set<EntityId> accessibleEntity = getVisibleEntities(resourceMap, keycloakToken, isAllScopesMandatory);
+            if (!accessibleEntity.isEmpty())
+                return true;
         } catch (AuthorizationDeniedException ignore) {
             throw new RuntimeException("Unexpected error during authorization request.", ignore);
 
@@ -168,7 +144,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
     }
 
 
-    private Set getVisibleEntities(Map<EntityId, List<String>> resourceMap, String keycloakToken) {
+    private Set<EntityId> getVisibleEntities(Map<EntityId, List<String>> resourceMap, String keycloakToken, boolean isAllScopesMandatory) {
 
         try {
             if (keycloakToken == null) {
@@ -202,10 +178,19 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
                     Collection<Permission> grantedPermissions = requestingPartyToken.getPermissions();
                     Iterator<Permission> permissionIterator = grantedPermissions.iterator();
                     while (permissionIterator.hasNext()) {
-                        String resourceId = permissionIterator.next().getResourceId();
-                        if (resourceEntityMap.containsKey(resourceId))
-                            visibleEntities.add(resourceEntityMap.get(resourceId));
+                        Permission permission = permissionIterator.next();
+                        String resourceId = permission.getResourceId();
+                        Set<String> scopeList = permission.getScopes();
+                        if (resourceEntityMap.containsKey(resourceId)) {
 
+                            if (!isAllScopesMandatory)
+                                visibleEntities.add(resourceEntityMap.get(resourceId));
+                            else {
+                                if (resourceMap.get(resourceEntityMap.get(resourceId)).equals(scopeList))
+                                    visibleEntities.add(resourceEntityMap.get(resourceId));
+                            }
+
+                        }
                     }
                     return visibleEntities;
                 }
@@ -219,76 +204,86 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
         return Collections.EMPTY_SET;
     }
 
-
     public String getResourceURL(EntityId entityId) {
-        String entityType = entityId.getEntityType().name();
+        EntityType entityType = entityId.getEntityType();
         String resourceUrl;
-        switch (entityMap.get(entityType)) {
-            case 1:
-                resourceUrl = "instance/";
+        switch (entityType) {
+            case INSTANCE:
+                resourceUrl = "instance/" + instanceName;
                 break;
-            case 2:
+            case NAMESPACE:
                 resourceUrl = "instance/" + instanceName + "/namespace/" + entityId.getEntityName();
                 break;
-            case 3:
+            case ARTIFACT:
                 ArtifactId artifactId = (ArtifactId) entityId;
                 resourceUrl = "instance/" + instanceName + "/namespace/" + artifactId.getNamespace() + "/artifact/" + artifactId.getArtifact();
                 break;
-            case 4:
+            case APPLICATION:
                 ApplicationId applicationId = (ApplicationId) entityId;
                 resourceUrl = "instance/" + instanceName + "/namespace/" + applicationId.getNamespace() + "/application/" + applicationId.getApplication();
                 break;
-            case 5:
+            case DATASET:
                 DatasetId dataset = (DatasetId) entityId;
                 resourceUrl = "instance/" + instanceName + "/namespace/" + dataset.getNamespace() + "/application/" + dataset.getDataset();
                 break;
-            case 6:
+            case DATASET_MODULE:
                 DatasetModuleId datasetModuleId = (DatasetModuleId) entityId;
                 resourceUrl = "instance/" + instanceName + "/namespace/" + datasetModuleId.getNamespace() + "/datasetmodule/" + datasetModuleId.getModule();
                 break;
-            case 7:
+            case DATASET_TYPE:
                 DatasetTypeId datasetTypeId = (DatasetTypeId) entityId;
                 resourceUrl = "instance/" + instanceName + "/namespace/" + datasetTypeId.getNamespace() + "/datasettype/" + datasetTypeId.getType();
                 break;
-            case 8:
+            case PROGRAM:
                 ProgramId programId = (ProgramId) entityId;
                 resourceUrl = "instance/" + instanceName + "/namespace/" + programId.getNamespace() + "/application/" + programId.getApplication() + "/program/" + programId.getProgram();
                 break;
-            case 9:
+            case SECUREKEY:
                 SecureKeyId secureKeyId = (SecureKeyId) entityId;
                 resourceUrl = "instance/" + instanceName + "/namespace/" + secureKeyId.getNamespace() + "/securekey/" + secureKeyId.getName();
                 break;
-            case 10:
+            case KERBEROSPRINCIPAL:
                 KerberosPrincipalId kerberosPrincipalId = (KerberosPrincipalId) entityId;
                 resourceUrl = "instance/" + instanceName + "/kerberosprincipal/" + kerberosPrincipalId.getPrincipal();
                 break;
             default:
                 throw new IllegalArgumentException(String.format("The entity %s is of unknown type %s", entityId, entityType));
         }
-
         return resourceUrl;
     }
 
-    private InputStream createConfigration(AuthorizationContext context) {
+    private InputStream createConfiguration(AuthorizationContext context) {
         Properties extensionProp = context.getExtensionProperties();
         String JsonElem;
-        String clientId = extensionProp.getProperty("client_id");
-        String clientSecret = extensionProp.getProperty("client_secret");
-        String realm = extensionProp.getProperty("realm");
-        String authServerUrl = extensionProp.getProperty("authserverurl");
-
-        Map<String, Object> clientCredentials = new HashMap();
-        clientCredentials.put("secret", clientSecret);
-        Configuration keycloakConf = new Configuration(authServerUrl, realm, clientId, clientCredentials, null);
-        ObjectMapper objectMapper = new ObjectMapper();
+        InputStream inputStream;
         try {
+
+            if (extensionProp.contains("keycloak-config-file")) {
+                String filePath = extensionProp.get("keycloak-config-file").toString();
+                File keycloakConfigFile = new File(filePath);
+                if (keycloakConfigFile.exists()) {
+                    inputStream = new FileInputStream(keycloakConfigFile);
+                    return inputStream;
+                }
+            }
+
+            String clientId = extensionProp.getProperty("client_id");
+            String clientSecret = extensionProp.getProperty("client_secret");
+            String realm = extensionProp.getProperty("realm");
+            String authServerUrl = extensionProp.getProperty("authserverurl");
+
+            Map<String, Object> clientCredentials = new HashMap();
+            clientCredentials.put("secret", clientSecret);
+            Configuration keycloakConf = new Configuration(authServerUrl, realm, clientId, clientCredentials, null);
+            ObjectMapper objectMapper = new ObjectMapper();
+
             JsonElem = objectMapper.writeValueAsString(keycloakConf);
             System.out.println(JsonElem);
         } catch (Exception ex) {
             throw new RuntimeException("unable to convert to Json");
         }
 
-        InputStream inputStream = new ByteArrayInputStream(JsonElem.getBytes());
+        inputStream = new ByteArrayInputStream(JsonElem.getBytes());
         return inputStream;
     }
 }
