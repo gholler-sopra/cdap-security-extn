@@ -20,7 +20,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
-import java.nio.file.Files;
 import java.util.*;
 
 public class KeycloakAuthorizer extends AbstractAuthorizer {
@@ -59,12 +58,13 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
         }
     }
 
-    public boolean enforce(EntityId entityId, Set<Action> scopes, String accessToken) {
+    public boolean enforce(EntityId entityId, Set<Action> scopes, String cdapToken) {
         List<String> scopeList = new ArrayList();
         for (Action action : scopes) {
             scopeList.add(action.toString());
         }
-        boolean isAllowed = requestTokenAuthorization(entityId, scopeList, accessToken, true);
+        String keycloakToken = KeycloakAuthUtil.getKeycloakToken(cdapToken);
+        boolean isAllowed = requestTokenAuthorization(entityId, scopeList, keycloakToken, true);
         return isAllowed;
     }
 
@@ -75,7 +75,8 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
         for (EntityId entityId : entityIds) {
             resourceMap.put(entityId, scopes);
         }
-        Set<EntityId> visibleEntities = getVisibleEntities(resourceMap, principal.getAccessToken(), false);
+        String keycloakToken = KeycloakAuthUtil.getKeycloakToken(principal.getAccessToken());
+        Set<EntityId> visibleEntities = getAccessibleEntities(resourceMap, keycloakToken, false);
 
         return visibleEntities;
     }
@@ -131,7 +132,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
             }
             Map<EntityId, List<String>> resourceMap = new HashMap();
             resourceMap.put(entityId, scopes);
-            Set<EntityId> accessibleEntity = getVisibleEntities(resourceMap, keycloakToken, isAllScopesMandatory);
+            Set<EntityId> accessibleEntity = getAccessibleEntities(resourceMap, keycloakToken, isAllScopesMandatory);
             if (!accessibleEntity.isEmpty())
                 return true;
         } catch (AuthorizationDeniedException ignore) {
@@ -144,7 +145,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
     }
 
 
-    private Set<EntityId> getVisibleEntities(Map<EntityId, List<String>> resourceMap, String keycloakToken, boolean isAllScopesMandatory) {
+    private Set<EntityId> getAccessibleEntities(Map<EntityId, List<String>> resourceMap, String keycloakToken, boolean isAllScopesMandatory) {
 
         try {
             if (keycloakToken == null) {
