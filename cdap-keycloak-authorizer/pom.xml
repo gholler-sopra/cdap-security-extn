@@ -31,7 +31,7 @@
     <properties>
         <app.main.class>co.cask.cdap.keycloaksecurity.KeycloakAuthorizer</app.main.class>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <cdap.version>5.1.2</cdap.version>
+        <cdap.version>5.1.2046</cdap.version>
         <slf4j.version>1.7.5</slf4j.version>
         <guava.version>13.0.1</guava.version>
         <junit.version>4.11</junit.version>
@@ -40,16 +40,24 @@
     <dependencies>
         <dependency>
             <groupId>co.cask.cdap</groupId>
-            <artifactId>cdap-api</artifactId>
+            <artifactId>cdap-proto</artifactId>
             <version>${cdap.version}</version>
-            <scope>provided</scope>
         </dependency>
+
         <dependency>
             <groupId>co.cask.cdap</groupId>
-            <artifactId>cdap-unit-test</artifactId>
+            <artifactId>cdap-security-spi</artifactId>
             <version>${cdap.version}</version>
-            <scope>test</scope>
         </dependency>
+
+        <dependency>
+            <groupId>co.cask.cdap</groupId>
+            <artifactId>cdap-common</artifactId>
+            <version>${cdap.version}</version>
+        </dependency>
+
+
+
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
@@ -76,6 +84,11 @@
             <groupId>org.json</groupId>
             <artifactId>json</artifactId>
             <version>20190722</version>
+        </dependency>
+        <dependency>
+            <groupId>commons-codec</groupId>
+            <artifactId>commons-codec</artifactId>
+            <version>1.6</version>
         </dependency>
     </dependencies>
 

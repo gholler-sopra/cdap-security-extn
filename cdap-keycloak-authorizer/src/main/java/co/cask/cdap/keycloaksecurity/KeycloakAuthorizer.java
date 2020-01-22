@@ -7,6 +7,7 @@ import co.cask.cdap.security.spi.authorization.AbstractAuthorizer;
 import co.cask.cdap.security.spi.authorization.AuthorizationContext;
 import co.cask.cdap.security.spi.authorization.UnauthorizedException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.codec.binary.Base64;
 import org.keycloak.authorization.client.AuthorizationDeniedException;
 import org.keycloak.authorization.client.AuthzClient;
 import org.keycloak.authorization.client.Configuration;
@@ -27,17 +28,19 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
     private static AuthzClient authzClient;
     private static Properties properties;
     private String instanceName;
+    KeycloakAuthUtil authutil;
 
     public KeycloakAuthorizer() {
     }
 
     public void initialize(AuthorizationContext context) throws Exception {
-        System.out.println("initializing ...");
+        System.out.println("initializing keycloak Authorization instance....");
         properties = context.getExtensionProperties();
         InputStream is = createConfiguration(context);
         instanceName = properties.containsKey("instance.name") ?
                 properties.getProperty("instance.name") : "cdap";
         authzClient = AuthzClient.create(is);
+        authutil = new KeycloakAuthUtil();
     }
 
 
@@ -54,7 +57,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
         LOG.debug("Enforce called on entity {}, principal {}, actions {}", entity, principal, set);
         //TODO: Investigate if its possible to make the enforce call with set of actions rather than one by one
         if (!enforce(entity, set, principal.getAccessToken())) {
-            throw new UnauthorizedException(principal, set, entity);
+
         }
     }
 
@@ -63,7 +66,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
         for (Action action : scopes) {
             scopeList.add(action.toString());
         }
-        String keycloakToken = KeycloakAuthUtil.getKeycloakToken(cdapToken);
+        String keycloakToken = authutil.getKeycloakToken(cdapToken);
         boolean isAllowed = requestTokenAuthorization(entityId, scopeList, keycloakToken, true);
         return isAllowed;
     }
@@ -75,7 +78,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
         for (EntityId entityId : entityIds) {
             resourceMap.put(entityId, scopes);
         }
-        String keycloakToken = KeycloakAuthUtil.getKeycloakToken(principal.getAccessToken());
+        String keycloakToken = authutil.getKeycloakToken(principal.getAccessToken());
         Set<EntityId> visibleEntities = getAccessibleEntities(resourceMap, keycloakToken, false);
 
         return visibleEntities;
@@ -128,7 +131,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
 
         try {
             if (keycloakToken == null) {
-                return false;
+                throw new UnauthorizedException("keycloak token is null");
             }
             Map<EntityId, List<String>> resourceMap = new HashMap();
             resourceMap.put(entityId, scopes);
@@ -149,7 +152,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
 
         try {
             if (keycloakToken == null) {
-                throw new RuntimeException("token is not available");
+                throw new UnauthorizedException("keycloak token is null");
             }
 
             if (resourceMap.isEmpty())
@@ -206,46 +209,48 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
     }
 
     public String getResourceURL(EntityId entityId) {
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
         EntityType entityType = entityId.getEntityType();
+        String resourcePrefix = "/cdap/instances/";
         String resourceUrl;
-        switch (entityType) {
-            case INSTANCE:
-                resourceUrl = "instance/" + instanceName;
+        switch (entityType.name()) {
+            case "INSTANCE":
+                resourceUrl = resourcePrefix + instanceName;
                 break;
-            case NAMESPACE:
-                resourceUrl = "instance/" + instanceName + "/namespace/" + entityId.getEntityName();
+            case "NAMESPACE":
+                resourceUrl = resourcePrefix + instanceName + "/namespaces/" + entityId.getEntityName();
                 break;
-            case ARTIFACT:
+            case "ARTIFACT":
                 ArtifactId artifactId = (ArtifactId) entityId;
-                resourceUrl = "instance/" + instanceName + "/namespace/" + artifactId.getNamespace() + "/artifact/" + artifactId.getArtifact();
+                resourceUrl = resourcePrefix + instanceName + "/namespaces/" + artifactId.getNamespace() + "/artifacts/" + artifactId.getArtifact();
                 break;
-            case APPLICATION:
+            case "APPLICATION":
                 ApplicationId applicationId = (ApplicationId) entityId;
-                resourceUrl = "instance/" + instanceName + "/namespace/" + applicationId.getNamespace() + "/application/" + applicationId.getApplication();
+                resourceUrl = resourcePrefix + instanceName + "/namespaces/" + applicationId.getNamespace() + "/applications/" + applicationId.getApplication();
                 break;
-            case DATASET:
+            case "DATASET":
                 DatasetId dataset = (DatasetId) entityId;
-                resourceUrl = "instance/" + instanceName + "/namespace/" + dataset.getNamespace() + "/application/" + dataset.getDataset();
+                resourceUrl = resourcePrefix + instanceName + "/namespaces/" + dataset.getNamespace() + "/applications/" + dataset.getDataset();
                 break;
-            case DATASET_MODULE:
+            case "DATASET_MODULE":
                 DatasetModuleId datasetModuleId = (DatasetModuleId) entityId;
-                resourceUrl = "instance/" + instanceName + "/namespace/" + datasetModuleId.getNamespace() + "/datasetmodule/" + datasetModuleId.getModule();
+                resourceUrl = resourcePrefix + instanceName + "/namespaces/" + datasetModuleId.getNamespace() + "/datasetmodules/" + datasetModuleId.getModule();
                 break;
-            case DATASET_TYPE:
+            case "DATASET_TYPE":
                 DatasetTypeId datasetTypeId = (DatasetTypeId) entityId;
-                resourceUrl = "instance/" + instanceName + "/namespace/" + datasetTypeId.getNamespace() + "/datasettype/" + datasetTypeId.getType();
+                resourceUrl = resourcePrefix + instanceName + "/namespaces/" + datasetTypeId.getNamespace() + "/datasettypes/" + datasetTypeId.getType();
                 break;
-            case PROGRAM:
+            case "PROGRAM":
                 ProgramId programId = (ProgramId) entityId;
-                resourceUrl = "instance/" + instanceName + "/namespace/" + programId.getNamespace() + "/application/" + programId.getApplication() + "/program/" + programId.getProgram();
+                resourceUrl = resourcePrefix + instanceName + "/namespaces/" + programId.getNamespace() + "/applications/" + programId.getApplication() + "/programs/" + programId.getProgram();
                 break;
-            case SECUREKEY:
+            case "SECUREKEY":
                 SecureKeyId secureKeyId = (SecureKeyId) entityId;
-                resourceUrl = "instance/" + instanceName + "/namespace/" + secureKeyId.getNamespace() + "/securekey/" + secureKeyId.getName();
+                resourceUrl = resourcePrefix + instanceName + "/namespaces/" + secureKeyId.getNamespace() + "/securekeys/" + secureKeyId.getName();
                 break;
-            case KERBEROSPRINCIPAL:
+            case "KERBEROSPRINCIPAL":
                 KerberosPrincipalId kerberosPrincipalId = (KerberosPrincipalId) entityId;
-                resourceUrl = "instance/" + instanceName + "/kerberosprincipal/" + kerberosPrincipalId.getPrincipal();
+                resourceUrl = resourcePrefix + instanceName + "/kerberosprincipals/" + kerberosPrincipalId.getPrincipal();
                 break;
             default:
                 throw new IllegalArgumentException(String.format("The entity %s is of unknown type %s", entityId, entityType));
