@@ -7,7 +7,6 @@ import co.cask.cdap.security.spi.authorization.AbstractAuthorizer;
 import co.cask.cdap.security.spi.authorization.AuthorizationContext;
 import co.cask.cdap.security.spi.authorization.UnauthorizedException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.commons.codec.binary.Base64;
 import org.keycloak.authorization.client.AuthorizationDeniedException;
 import org.keycloak.authorization.client.AuthzClient;
 import org.keycloak.authorization.client.Configuration;
@@ -57,7 +56,7 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
         LOG.debug("Enforce called on entity {}, principal {}, actions {}", entity, principal, set);
         //TODO: Investigate if its possible to make the enforce call with set of actions rather than one by one
         if (!enforce(entity, set, principal.getAccessToken())) {
-
+            throw new UnauthorizedException(principal,set,entity);
         }
     }
 
@@ -209,7 +208,6 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
     }
 
     public String getResourceURL(EntityId entityId) {
-        ClassLoader loader = Thread.currentThread().getContextClassLoader();
         EntityType entityType = entityId.getEntityType();
         String resourcePrefix = "/cdap/instances/";
         String resourceUrl;
@@ -240,7 +238,11 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
                 DatasetTypeId datasetTypeId = (DatasetTypeId) entityId;
                 resourceUrl = resourcePrefix + instanceName + "/namespaces/" + datasetTypeId.getNamespace() + "/datasettypes/" + datasetTypeId.getType();
                 break;
-            case "PROGRAM":
+            case "STREAM":
+                StreamId streamId = (StreamId) entityId;
+                resourceUrl = resourcePrefix + instanceName + "/namespaces/" + streamId.getNamespace() + "/streams/" + streamId.getEntityName();
+                break;
+                case "PROGRAM":
                 ProgramId programId = (ProgramId) entityId;
                 resourceUrl = resourcePrefix + instanceName + "/namespaces/" + programId.getNamespace() + "/applications/" + programId.getApplication() + "/programs/" + programId.getProgram();
                 break;
@@ -276,7 +278,9 @@ public class KeycloakAuthorizer extends AbstractAuthorizer {
             String clientId = extensionProp.getProperty("client_id");
             String clientSecret = extensionProp.getProperty("client_secret");
             String realm = extensionProp.getProperty("realm");
-            String authServerUrl = extensionProp.getProperty("authserverurl");
+            String keycloakauthserveraddress = extensionProp.getProperty("keycloakauthserveraddress");
+            String keycloakauthserverport = extensionProp.getProperty("keycloakauthserverport");
+            String authServerUrl = "http://"+keycloakauthserveraddress+":"+keycloakauthserverport+"/auth";
 
             Map<String, Object> clientCredentials = new HashMap();
             clientCredentials.put("secret", clientSecret);
